@@ -1,0 +1,8 @@
+*.pyc
+/image_cache
+/outputs_raw
+/outputs_web
+/logs
+/configs/config.ini
+/configs/config_db.ini
+/configs/config_calc.ini
