@@ -1,3 +1,17 @@
+[setting]
+repetition_interval = 600
+sleep_interval = 30
+
+[logging]
+init_level=INFO
+
+[directories]
+logs=./logs
+outputs=./outputs
+outputs_web=./outputs_web
+outputs_raw=./outputs_raw
+ext_filter_cache=./image_cache
+
 [mariadb]
 address=127.0.0.1
 port=3306
@@ -20,24 +34,3 @@ bucket_new_data=realtime_cbl
 new_data_type=default
 old_new_data_border=2023-12-31T12:00:00Z
 bucket_out_cml=output_bucket
-
-[http]
-enable_http_server=True
-http_server_address=0.0.0.0
-http_server_port=8080
-
-[logging]
-init_level=DEBUG
-
-; currently unused
-[external_filter]
-url=http://127.0.0.1/img_data/
-file_prefix=FILTER_LAYER_
-radius=20
-pixel_threshold=5
-default_return=True
-max_history_lookups=3
-IMG_X_MIN=11.28
-IMG_X_MAX=20.765
-IMG_Y_MIN=48.05
-IMG_Y_MAX=52.165

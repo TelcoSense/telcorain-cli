@@ -12,7 +12,7 @@ from codecs import getwriter
 
 from telcorain.database.influx_manager import influx_man
 from telcorain.database.sql_manager import SqlManager
-from telcorain.handlers.logging_handler import setup_init_logging
+from telcorain.handlers.logging_handler import setup_init_logging, logger
 from telcorain.handlers.writer import (
     RealtimeWriter,
     purge_raw_outputs,
@@ -20,7 +20,6 @@ from telcorain.handlers.writer import (
 )
 from telcorain.procedures.calculation import Calculation
 from telcorain.procedures.utils.helpers import create_cp_dict, select_all_links
-from telcorain.handlers.logging_handler import logger_cli as logger
 
 
 simplefilter(action="ignore", category=FutureWarning)
@@ -42,12 +41,10 @@ class TelcorainCLI:
         config_path: str = "configs/config.ini",
         config_calc_path: str = "configs/config_calc.ini",
         config_db_path: str = "configs/config_db.ini",
-        logger_name: str = "telcorain-cli",
     ):
         self.config_path: str = config_path
         self.config_calc_path: str = config_calc_path
         self.config_db_path: str = config_db_path
-        self.logger_name: str = logger_name
         self.cp: dict = create_cp_dict(path=config_calc_path, format=True)
         self.config: dict = create_cp_dict(path=config_path, format=False)
         self.config_db: dict = create_cp_dict(path=config_db_path, format=False)
@@ -71,7 +68,7 @@ class TelcorainCLI:
         self.sql_man = SqlManager(min_length=self.cp["cml"]["min_length"])
         self.influx_man = influx_man
         self.logger = logger
-        setup_init_logging(logger, self.cp["directories"]["logs"])
+        setup_init_logging(logger, self.config["directories"]["logs"])
         sys.stdout.reconfigure(encoding="utf-8")
 
     def run(self):
@@ -139,6 +136,7 @@ class TelcorainCLI:
                     skip_sql=self.cp["realtime"]["is_sql_write_skipped"],
                     since_time=since_time,
                     cp=self.cp,
+                    config=self.config,
                 )
 
                 # write to the SQL
@@ -180,7 +178,7 @@ class TelcorainCLI:
             f"MariaDB IP: {self.config_db['mariadb']['address']}, port: {self.config_db['mariadb']['port']}; "
             f"InfluxDB IP/port: {self.config_db['influx2']['url']}; "
             # f"HTTP server IP: {self.config_db['http']['http_server_address']}, port: {self.config_db['http']['http_server_port']}; "
-            f"Output folders: logs: {self.cp['directories']['logs']}, web: {self.cp['directories']['outputs_web']}, raw: {self.cp['directories']['outputs_raw']}"
+            f"Output folders: logs: {self.config['directories']['logs']}, web: {self.config['directories']['outputs_web']}, raw: {self.config['directories']['outputs_raw']}"
         )
         self.logger.info(
             f"Calculation config settings: "
@@ -220,17 +218,17 @@ class TelcorainCLI:
         # start thread for wiping out output bucket in InfluxDB
         self.influx_man.run_wipeout_output_bucket()
         # purge raw .npy raingrids and .pngs outputs from disk
-        purge_raw_outputs(cp=self.cp)
-        purge_web_outputs(cp=self.cp)
+        purge_raw_outputs(config=self.config)
+        purge_web_outputs(config=self.config)
         self.logger.info("[DEVMODE] ERASE DONE.")
 
     def _check_local_files(self, current_time: datetime):
         # Check files in the output folder. Delete older files than rerention_window.
         retention_window = self.cp["realtime"]["realtime_timewindow"]
-        output_raw_dir = self.cp["directories"]["outputs_raw"]
-        output_web_dir = self.cp["directories"]["outputs_web"]
+        output_raw_dir = self.config["directories"]["outputs_raw"]
+        output_web_dir = self.config["directories"]["outputs_web"]
 
-        all_current_files = glob(f"{(self.cp['directories']['outputs_raw'])}/*")
+        all_current_files = glob(f"{(self.config['directories']['outputs_raw'])}/*")
         all_current_files_times = [
             datetime.strptime((Path(filename).stem), "%Y-%m-%d_%H%M")
             for filename in all_current_files
