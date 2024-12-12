@@ -9,7 +9,7 @@ is_mlp_enabled=False
 rolling_hours=1.0
 rolling_values=30
 wet_dry_deviation=0.8
-is_window_centered=True
+is_window_centered=False
 baseline_samples=5
 
 [waa]
