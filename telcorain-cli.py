@@ -161,10 +161,8 @@ class TelcorainCLI:
                 )
 
                 self.logger.info(f"RUN ends. Next iteration starts at: {next_time}.")
+                self.logger.info(f"...sleeping until {next_time}...")
                 while datetime.now(tz=timezone.utc) < next_time:
-                    self.logger.info(
-                        f"...sleeping for {self.sleep_interval} seconds..."
-                    )
                     sleep(self.sleep_interval)
         except KeyboardInterrupt:
             print("Shutdown of the program...")
@@ -187,7 +185,8 @@ class TelcorainCLI:
             f"WAA Schleiss: val: {self.cp['waa']['waa_schleiss_val']}, {self.cp['waa']['waa_schleiss_tau']}; "
             f"Interpolation: res: {self.cp['interp']['interp_res']}, power: {self.cp['interp']['idw_power']}; "
             f"near: {self.cp['interp']['idw_near']}, dist: {self.cp['interp']['idw_dist']}; "
-            f"Realtime window: {self.cp['realtime']['realtime_timewindow']}"
+            f"Realtime window: {self.cp['realtime']['realtime_timewindow']}; "
+            f"Realtime optimization enabled: {self.cp['realtime']['realtime_optimization']}"
         )
 
     def _get_times(self):
