@@ -3,6 +3,8 @@
 /outputs_raw
 /outputs_web
 /logs
+/temp_data/temp_data.pkl
+/temp
 /configs/config.ini
 /configs/config_db.ini
 /configs/config_calc.ini

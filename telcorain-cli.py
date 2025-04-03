@@ -4,11 +4,10 @@ from warnings import simplefilter
 from datetime import datetime, timedelta, timezone
 from glob import glob
 from pathlib import Path
-from os.path import exists
+from os.path import exists, join
 from os import remove
 from time import sleep
 from sys import stdout, stderr
-from codecs import getwriter
 
 from telcorain.database.influx_manager import influx_man
 from telcorain.database.sql_manager import SqlManager
@@ -23,9 +22,7 @@ from telcorain.procedures.utils.helpers import create_cp_dict, select_all_links
 
 
 simplefilter(action="ignore", category=FutureWarning)
-# Reconfigure standard output and error to UTF-8
-# stdout = getwriter("utf-8")(stdout.detach())
-# stderr = getwriter("utf-8")(stderr.detach())
+
 
 # TODO: concat a erase dat z influx_data misto znovupocitani all the time
 # TODO: reformat kodu
@@ -160,12 +157,17 @@ class TelcorainCLI:
                     calc_dataset=calculation.calc_data_steps,
                 )
 
-                self.logger.info(f"RUN ends. Next iteration starts at: {next_time}.")
+                self.logger.info(
+                    f"RUN ends. Next iteration should start at: {next_time}."
+                )
+                self.logger.info(
+                    f"Final time of calculation: {datetime.now(tz=timezone.utc) - current_time}"
+                )
                 self.logger.info(f"...sleeping until {next_time}...")
                 while datetime.now(tz=timezone.utc) < next_time:
                     sleep(self.sleep_interval)
         except KeyboardInterrupt:
-            print("Shutdown of the program...")
+            self.logger.info("Shutdown of the program...")
             return
 
     def _print_init_log_info(self):
@@ -222,46 +224,63 @@ class TelcorainCLI:
         self.logger.info("[DEVMODE] ERASE DONE.")
 
     def _check_local_files(self, current_time: datetime):
-        # Check files in the output folder. Delete older files than rerention_window.
+        # Check files in the output folder. Delete older files than retention_window.
         retention_window = self.cp["realtime"]["realtime_timewindow"]
         output_raw_dir = self.config["directories"]["outputs_raw"]
         output_web_dir = self.config["directories"]["outputs_web"]
 
-        all_current_files = glob(f"{(self.config['directories']['outputs_raw'])}/*")
-        all_current_files_times = [
-            datetime.strptime((Path(filename).stem), "%Y-%m-%d_%H%M")
-            for filename in all_current_files
-        ]
-        all_current_files_times = [
-            dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-            for dt in all_current_files_times
-        ]
+        # Get all files in the output_raw_dir
+        all_current_files = glob(
+            join(output_raw_dir, "*.*")
+        )  # Match all files with extensions
 
+        # Parse filenames to datetimes
+        all_current_files_times = []
+        for filename in all_current_files:
+            try:
+                # Extract the stem (filename without extension)
+                stem = Path(filename).stem
+                dt = datetime.strptime(stem, "%Y-%m-%d_%H%M")
+                # Ensure datetime is timezone-aware (UTC)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                all_current_files_times.append((filename, dt))
+            except ValueError as e:
+                self.logger.error(
+                    f"Skipping file {filename}: could not parse datetime from filename. Error: {e}"
+                )
+
+        # Calculate the threshold for deletion
         threshold = current_time - self.delta_map.get(retention_window)
 
-        # Filter the list to keep only datetimes that are more recent than the threshold
+        # Separate files to keep and delete
         files_to_keep = [
-            f"{dt.strftime('%Y-%m-%d_%H%M')}"
-            for dt in all_current_files_times
-            if dt >= threshold
+            filename for filename, dt in all_current_files_times if dt >= threshold
         ]
         files_to_delete = [
-            f"{dt.strftime('%Y-%m-%d_%H%M')}"
-            for dt in all_current_files_times
-            if dt < threshold
+            filename for filename, dt in all_current_files_times if dt < threshold
         ]
 
+        # Delete files older than the threshold
         removed_files = []
         for filename in files_to_delete:
-            filepath_raw = f"{output_raw_dir}/{filename}.npy"
-            filepath_web = f"{output_web_dir}/{filename}.png"
             try:
+                # Construct paths for raw and web files
+                stem = Path(filename).stem
+                filepath_raw = join(output_raw_dir, f"{stem}.npy")
+                filepath_web = join(output_web_dir, f"{stem}.png")
+
+                # Delete files if they exist
                 if exists(filepath_raw):
                     remove(filepath_raw)
+                    self.logger.debug(f"Deleted raw file: {filepath_raw}")
+                if exists(filepath_web):
                     remove(filepath_web)
-                    removed_files.append(filename)
+                    self.logger.debug(f"Deleted web file: {filepath_web}")
+
+                removed_files.append(filename)
             except Exception as e:
-                print(f"Error deleting {filename}: {e}")
+                self.logger.error(f"Error deleting {filename}: {e}")
 
         return len(removed_files), len(files_to_keep)
 
