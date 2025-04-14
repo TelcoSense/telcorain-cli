@@ -1,6 +1,6 @@
 [setting]
-repetition_interval = 600
-sleep_interval = 30
+repetition_interval=600
+sleep_interval=30
 
 [logging]
 init_level=INFO

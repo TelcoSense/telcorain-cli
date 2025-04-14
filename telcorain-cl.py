@@ -2,13 +2,11 @@ import sys
 import argparse
 from warnings import simplefilter
 from datetime import datetime, timedelta, timezone
-from glob import glob
 from pathlib import Path
-from os.path import exists, join
-from concurrent.futures import ThreadPoolExecutor
-from os import remove
+from os import remove, listdir
 from time import sleep
-from sys import stdout, stderr
+from concurrent.futures import ThreadPoolExecutor
+import logging
 
 from telcorain.database.influx_manager import influx_man
 from telcorain.database.sql_manager import SqlManager
@@ -21,16 +19,13 @@ from telcorain.handlers.writer import (
 from telcorain.procedures.calculation import Calculation
 from telcorain.procedures.utils.helpers import create_cp_dict, select_all_links
 
-
 simplefilter(action="ignore", category=FutureWarning)
 
 
 class TelcorainCLI:
-    """
-    Main class of TelcoRain CLI for raingrids computation.
-    """
+    """Main class for TelcoRain CLI raingrid computation."""
 
-    delta_map: dict = {
+    TIME_WINDOWS = {
         "1h": timedelta(hours=1),
         "3h": timedelta(hours=3),
         "6h": timedelta(hours=6),
@@ -49,22 +44,18 @@ class TelcorainCLI:
         config_db_path: str = "configs/config_db.ini",
     ):
         """Initialize CLI with configuration."""
-        self.cp: dict = create_cp_dict(path=config_calc_path, format=True)
-        self.config: dict = create_cp_dict(path=config_path, format=False)
-        self.config_db: dict = create_cp_dict(path=config_db_path, format=False)
+        self.config = create_cp_dict(path=config_path, format=False)
+        self.cp = create_cp_dict(path=config_calc_path, format=True)
+        self.config_db = create_cp_dict(path=config_db_path, format=False)
 
-        self.config_path: str = config_path
-        self.config_calc_path: str = config_calc_path
-        self.config_db_path: str = config_db_path
-        self.repetition_interval: int = self.config["setting"]["repetition_interval"]
-        self.sleep_interval: int = self.config["setting"]["sleep_interval"]
-
-        self.retention = self.delta_map.get(
-            self.cp["realtime"]["realtime_timewindow"]
+        self.repetition_interval = int(self.config["setting"]["repetition_interval"])
+        self.sleep_interval = int(self.config["setting"]["sleep_interval"])
+        self.retention = self.TIME_WINDOWS.get(
+            self.cp["realtime"]["realtime_timewindow"], timedelta(hours=1)
         ).total_seconds()
-        self.sql_man = SqlManager(min_length=self.cp["cml"]["min_length"])
+
+        self.sql_man = SqlManager(min_length=int(self.cp["cml"]["min_length"]))
         self.influx_man = influx_man
-        self.logger = logger
 
         setup_init_logging(logger, self.config["directories"]["logs"])
         sys.stdout.reconfigure(encoding="utf-8")
@@ -72,16 +63,10 @@ class TelcorainCLI:
     def run(self):
         """Run the TelcoRain calculation in continuous loop."""
         try:
-            # Start the logger
             self._print_init_log_info()
-            # Load the link info and select all available links
             links = self.sql_man.load_metadata()
             selected_links = select_all_links(links=links)
-            # Get the start time of the application
-            start_time = datetime.now(tz=timezone.utc)
-            self.logger.info(f"Starting Telcorain CLI at {start_time}.")
 
-            # define calculation class
             calculation = Calculation(
                 influx_man=self.influx_man,
                 links=links,
@@ -95,11 +80,10 @@ class TelcorainCLI:
 
         except KeyboardInterrupt:
             logger.info("Shutdown of the program...")
-        self._run_telcorain_calculation()
 
     def _run_iteration(self, calculation: Calculation):
-        # Calculation runs in a loop every repetition_interval (default 600 seconds)
-        self.logger.info(f"Starting new calculation...")
+        """Run a single calculation iteration."""
+        logger.info("Starting new calculation...")
 
         # Get current time, next iteration time, and previous iteration time
         current_time, next_time, since_time = self._get_times()
@@ -108,20 +92,20 @@ class TelcorainCLI:
         removed_files, kept_files = self._cleanup_old_files(current_time)
         deleted_rows = self.sql_man.delete_old_data(
             current_time,
-            retention_window=self.delta_map.get(
+            retention_window=self.TIME_WINDOWS.get(
                 self.cp["realtime"]["realtime_timewindow"]
             ),
         )
 
-        self.logger.info(
+        logger.info(
             f"Cleanup: Removed {removed_files} files, kept {kept_files}, "
             f"deleted {deleted_rows} DB rows"
         )
 
-        # fetch the data and run the calculation
+        # Run calculation
         calculation.run()
 
-        # create the realtime writer object
+        # Write results
         writer = RealtimeWriter(
             sql_man=self.sql_man,
             influx_man=self.influx_man,
@@ -132,7 +116,11 @@ class TelcorainCLI:
             config=self.config,
         )
 
-        # write to the SQL
+        self._write_results(writer, calculation)
+        self._sleep_until(next_time)
+
+    def _write_results(self, writer: RealtimeWriter, calculation: Calculation):
+        """Write calculation results to MariaDB."""
         self.sql_man.insert_realtime(
             self.retention,
             self.repetition_interval,
@@ -145,7 +133,6 @@ class TelcorainCLI:
             self.config_db["http"]["http_server_port"],
         )
 
-        # write to the local storage
         writer.push_results(
             rain_grids=calculation.rain_grids,
             x_grid=calculation.x_grid,
@@ -153,63 +140,20 @@ class TelcorainCLI:
             calc_dataset=calculation.calc_data_steps,
         )
 
-        self.logger.info(f"RUN ends. Next iteration should start at: {next_time}.")
-        self.logger.info(
-            f"Final time of calculation: {datetime.now(tz=timezone.utc) - current_time}"
-        )
-        self.logger.info(f"...sleeping until {next_time}...")
-        while datetime.now(tz=timezone.utc) < next_time:
-            sleep(self.sleep_interval)
-
-    def _print_init_log_info(self):
-        """Log initial configuration information."""
-        config_info = [
-            f"Logger level: {self.config['logging']['init_level']}",
-            f"MariaDB: {self.config_db['mariadb']['address']}:{self.config_db['mariadb']['port']}",
-            f"InfluxDB: {self.config_db['influx2']['url']}",
-            f"Output folders - logs: {self.config['directories']['logs']}",
-            f"web: {self.config['directories']['outputs_web']}",
-            f"raw: {self.config['directories']['outputs_raw']}",
-        ]
-
-        calc_info = [
-            f"Step: {self.cp['time']['step']}",
-            f"IsMLPEnabled: {self.cp['wet_dry']['is_mlp_enabled']}",
-            f"WAA Schleiss: {self.cp['waa']['waa_schleiss_val']}, {self.cp['waa']['waa_schleiss_tau']}",
-            f"Interpolation: res {self.cp['interp']['interp_res']}, power {self.cp['interp']['idw_power']}",
-            f"Realtime window: {self.cp['realtime']['realtime_timewindow']}",
-            f"Optimization: {self.cp['realtime']['realtime_optimization']}",
-        ]
-
-        logger.info("Global config settings: " + "; ".join(config_info))
-        logger.info("Calculation settings: " + "; ".join(calc_info))
-
-    def _get_times(self) -> tuple[datetime, datetime, datetime]:
-        """Get current, next, and since times for calculation."""
-        current_time = datetime.now(tz=timezone.utc)
-        return (
-            current_time,
-            current_time + timedelta(seconds=self.repetition_interval),
-            current_time - timedelta(seconds=self.repetition_interval),
-        )
-
-    def wipeout_all_data(self):
-        """Wipe all data from storage and databases."""
-        self.logger.info("[DEVMODE] All calculations will be ERASED from the database.")
-        # purge realtime data from MariaDB
-        self.sql_man.wipeout_realtime_tables()
-        # start thread for wiping out output bucket in InfluxDB
-        self.influx_man.run_wipeout_output_bucket()
-        # purge raw .npy raingrids and .pngs outputs from disk
-        with ThreadPoolExecutor() as executor:
-            executor.submit(purge_raw_outputs, config=self.config)
-            executor.submit(purge_web_outputs, config=self.config)
-        self.logger.info("[DEVMODE] DATA ERASE DONE.")
+    def _sleep_until(self, target_time: datetime):
+        """Sleep until target time with small intervals."""
+        while datetime.now(tz=timezone.utc) < target_time:
+            sleep(
+                min(
+                    self.sleep_interval,
+                    (target_time - datetime.now(tz=timezone.utc)).total_seconds(),
+                )
+            )
 
     def _cleanup_old_files(self, current_time: datetime) -> tuple[int, int]:
         """Clean up old files from output directories."""
         retention_window = self.cp["realtime"]["realtime_timewindow"]
-        threshold = current_time - self.delta_map.get(retention_window)
+        threshold = current_time - self.TIME_WINDOWS.get(retention_window)
 
         raw_dir = Path(self.config["directories"]["outputs_raw"])
         web_dir = Path(self.config["directories"]["outputs_web"])
@@ -248,27 +192,71 @@ class TelcorainCLI:
         except Exception as e:
             logger.error(f"Error deleting files: {e}")
 
+    def _print_init_log_info(self):
+        """Log initial configuration information."""
+        config_info = [
+            f"Logger level: {self.config['logging']['init_level']}",
+            f"MariaDB: {self.config_db['mariadb']['address']}:{self.config_db['mariadb']['port']}",
+            f"InfluxDB: {self.config_db['influx2']['url']}",
+            f"Output folders - logs: {self.config['directories']['logs']}",
+            f"web: {self.config['directories']['outputs_web']}",
+            f"raw: {self.config['directories']['outputs_raw']}",
+        ]
 
-if __name__ == "__main__":
+        calc_info = [
+            f"Step: {self.cp['time']['step']}",
+            f"IsMLPEnabled: {self.cp['wet_dry']['is_mlp_enabled']}",
+            f"WAA Schleiss: {self.cp['waa']['waa_schleiss_val']}, {self.cp['waa']['waa_schleiss_tau']}",
+            f"Interpolation: res {self.cp['interp']['interp_res']}, power {self.cp['interp']['idw_power']}",
+            f"Realtime window: {self.cp['realtime']['realtime_timewindow']}",
+            f"Optimization: {self.cp['realtime']['realtime_optimization']}",
+        ]
+
+        logger.info("[INFO] Global config settings: " + "; ".join(config_info))
+        logger.info("[INFO] Calculation settings: " + "; ".join(calc_info))
+
+    def _get_times(self) -> tuple[datetime, datetime, datetime]:
+        """Get current, next, and since times for calculation."""
+        current_time = datetime.now(tz=timezone.utc)
+        return (
+            current_time,
+            current_time + timedelta(seconds=self.repetition_interval),
+            current_time - timedelta(seconds=self.repetition_interval),
+        )
+
+    def wipeout_all_data(self):
+        """Wipe all data from storage and databases."""
+        logger.info("[DEVMODE] Erasing all calculation data...")
+        self.sql_man.wipeout_realtime_tables()
+        self.influx_man.run_wipeout_output_bucket()
+
+        with ThreadPoolExecutor() as executor:
+            executor.submit(purge_raw_outputs, config=self.config)
+            executor.submit(purge_web_outputs, config=self.config)
+
+        logger.info("[DEVMODE] Data erase complete.")
+
+
+def main():
+    """Main entry point for CLI."""
     parser = argparse.ArgumentParser(
-        description="TelcoRain CLI. It computes raingrids from CML Influx data, saves results"
-        "to a local folder (.npy and .png), MariaDB (param info and data info), and InfluxDB (rainrates)."
+        description="TelcoRain CLI for computing raingrids from CML data"
     )
-
-    parser.add_argument(
-        "--run", action="store_true", default=False, help="Run the CLI calculation."
-    )
-
+    parser.add_argument("--run", action="store_true", help="Run the CLI calculation")
     parser.add_argument(
         "--wipe_all",
         action="store_true",
-        default=False,
-        help="Wipe all data from local storage, MariaDB, and InfluxDB (rain rates).",
+        help="Wipe all data from storage and databases",
     )
 
     args = parser.parse_args()
-    telco_cli = TelcorainCLI()
+    cli = TelcorainCLI()
+
     if args.wipe_all:
-        telco_cli.wipeout_all_data()
+        cli.wipeout_all_data()
     if args.run:
-        telco_cli.run()
+        cli.run()
+
+
+if __name__ == "__main__":
+    main()
