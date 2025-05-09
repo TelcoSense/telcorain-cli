@@ -69,8 +69,37 @@ class TelcorainCLI:
         setup_init_logging(logger, self.config["directories"]["logs"])
         sys.stdout.reconfigure(encoding="utf-8")
 
-    def run(self):
-        """Run the TelcoRain calculation in continuous loop."""
+    def run(self, first=False):
+        """Run the TelcoRain calculation in continuous loop. If first it True, the first iteraction
+        is within retention_window interval instead of realtime_timewindow to save comp time.
+        """
+
+        if first:
+            try:
+                # Start the logger
+                self._print_init_log_info()
+                # Load the link info and select all available links
+                links = self.sql_man.load_metadata()
+                selected_links = select_all_links(links=links)
+                # Get the start time of the application
+                start_time = datetime.now(tz=timezone.utc)
+                self.logger.info(
+                    f"Starting Telcorain CLI at {start_time} for first iteration on retention_window."
+                )
+
+                # define calculation class
+                calculation = Calculation(
+                    influx_man=self.influx_man,
+                    links=links,
+                    selection=selected_links,
+                    cp=self.cp,
+                    config=self.config,
+                )
+                self._run_iteration(
+                    calculation, self.cp["realtime"]["retention_window"]
+                )
+            except KeyboardInterrupt:
+                logger.info("Shutdown of the program...")
         try:
             # Start the logger
             self._print_init_log_info()
@@ -89,16 +118,10 @@ class TelcorainCLI:
                 cp=self.cp,
                 config=self.config,
             )
-
-            if self.cp["realtime"]["first_iteration_full"]:
-                self._run_iteration(
-                    calculation, self.cp["realtime"]["retention_window"]
-                )
             while True:
                 self._run_iteration(
                     calculation, self.cp["realtime"]["realtime_timewindow"]
                 )
-
         except KeyboardInterrupt:
             logger.info("Shutdown of the program...")
 
@@ -266,6 +289,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--first",
+        action="store_true",
+        default=False,
+        help="Run with the retention_window first and then with realtime_timewindow.",
+    )
+
+    parser.add_argument(
         "--wipe_all",
         action="store_true",
         default=False,
@@ -276,5 +306,7 @@ if __name__ == "__main__":
     telco_cli = TelcorainCLI()
     if args.wipe_all:
         telco_cli.wipeout_all_data()
+    if args.first:
+        telco_cli.run(first=True)
     if args.run:
         telco_cli.run()

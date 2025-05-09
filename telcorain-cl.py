@@ -50,7 +50,7 @@ class TelcorainCLI:
 
         self.repetition_interval = int(self.config["setting"]["repetition_interval"])
         self.sleep_interval = int(self.config["setting"]["sleep_interval"])
-        self.retention = self.TIME_WINDOWS.get(
+        self.realtime_timewindow = self.TIME_WINDOWS.get(
             self.cp["realtime"]["realtime_timewindow"], timedelta(hours=1)
         ).total_seconds()
 
@@ -122,7 +122,7 @@ class TelcorainCLI:
     def _write_results(self, writer: RealtimeWriter, calculation: Calculation):
         """Write calculation results to MariaDB."""
         self.sql_man.insert_realtime(
-            self.retention,
+            self.realtime_timewindow,
             self.repetition_interval,
             self.cp["interp"]["interp_res"],
             self.cp["limits"]["x_min"],
