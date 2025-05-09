@@ -6,7 +6,9 @@ end=2024-09-19T12:30:00
 
 [realtime]
 is_realtime=True
-realtime_timewindow=7d
+realtime_timewindow=1d
+retention_window=7d
+first_iteration_full=False
 realtime_optimization=False
 is_output_write=True
 is_history_write=True

@@ -59,7 +59,7 @@ class TelcorainCLI:
         self.repetition_interval: int = self.config["setting"]["repetition_interval"]
         self.sleep_interval: int = self.config["setting"]["sleep_interval"]
 
-        self.retention = self.delta_map.get(
+        self.realtime_timewindow = self.delta_map.get(
             self.cp["realtime"]["realtime_timewindow"]
         ).total_seconds()
         self.sql_man = SqlManager(min_length=self.cp["cml"]["min_length"])
@@ -90,14 +90,19 @@ class TelcorainCLI:
                 config=self.config,
             )
 
+            if self.cp["realtime"]["first_iteration_full"]:
+                self._run_iteration(
+                    calculation, self.cp["realtime"]["retention_window"]
+                )
             while True:
-                self._run_iteration(calculation)
+                self._run_iteration(
+                    calculation, self.cp["realtime"]["realtime_timewindow"]
+                )
 
         except KeyboardInterrupt:
             logger.info("Shutdown of the program...")
-        self._run_telcorain_calculation()
 
-    def _run_iteration(self, calculation: Calculation):
+    def _run_iteration(self, calculation: Calculation, realtime_timewindow: str = "1d"):
         # Calculation runs in a loop every repetition_interval (default 600 seconds)
         self.logger.info(f"Starting new calculation...")
 
@@ -109,7 +114,7 @@ class TelcorainCLI:
         deleted_rows = self.sql_man.delete_old_data(
             current_time,
             retention_window=self.delta_map.get(
-                self.cp["realtime"]["realtime_timewindow"]
+                self.cp["realtime"]["retention_window"]
             ),
         )
 
@@ -119,7 +124,7 @@ class TelcorainCLI:
         )
 
         # fetch the data and run the calculation
-        calculation.run()
+        calculation.run(realtime_timewindow=realtime_timewindow)
 
         # create the realtime writer object
         writer = RealtimeWriter(
@@ -133,17 +138,17 @@ class TelcorainCLI:
         )
 
         # write to the SQL
-        self.sql_man.insert_realtime(
-            self.retention,
-            self.repetition_interval,
-            self.cp["interp"]["interp_res"],
-            self.cp["limits"]["x_min"],
-            self.cp["limits"]["x_max"],
-            self.cp["limits"]["y_min"],
-            self.cp["limits"]["y_max"],
-            self.config_db["http"]["http_server_address"],
-            self.config_db["http"]["http_server_port"],
-        )
+        # self.sql_man.insert_realtime(
+        #     self.realtime_timewindow,
+        #     self.repetition_interval,
+        #     self.cp["interp"]["interp_res"],
+        #     self.cp["limits"]["x_min"],
+        #     self.cp["limits"]["x_max"],
+        #     self.cp["limits"]["y_min"],
+        #     self.cp["limits"]["y_max"],
+        #     self.config_db["http"]["http_server_address"],
+        #     self.config_db["http"]["http_server_port"],
+        # )
 
         # write to the local storage
         writer.push_results(
@@ -157,7 +162,7 @@ class TelcorainCLI:
         self.logger.info(
             f"Final time of calculation: {datetime.now(tz=timezone.utc) - current_time}"
         )
-        self.logger.info(f"...sleeping until {next_time}...")
+        self.logger.info(f"...sleeping until {next_time} UTC time...")
         while datetime.now(tz=timezone.utc) < next_time:
             sleep(self.sleep_interval)
 
@@ -178,6 +183,7 @@ class TelcorainCLI:
             f"WAA Schleiss: {self.cp['waa']['waa_schleiss_val']}, {self.cp['waa']['waa_schleiss_tau']}",
             f"Interpolation: res {self.cp['interp']['interp_res']}, power {self.cp['interp']['idw_power']}",
             f"Realtime window: {self.cp['realtime']['realtime_timewindow']}",
+            f"Retention window: {self.cp['realtime']['retention_window']}",
             f"Optimization: {self.cp['realtime']['realtime_optimization']}",
         ]
 
@@ -208,7 +214,7 @@ class TelcorainCLI:
 
     def _cleanup_old_files(self, current_time: datetime) -> tuple[int, int]:
         """Clean up old files from output directories."""
-        retention_window = self.cp["realtime"]["realtime_timewindow"]
+        retention_window = self.cp["realtime"]["retention_window"]
         threshold = current_time - self.delta_map.get(retention_window)
 
         raw_dir = Path(self.config["directories"]["outputs_raw"])
