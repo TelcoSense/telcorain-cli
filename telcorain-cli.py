@@ -161,17 +161,17 @@ class TelcorainCLI:
         )
 
         # write to the SQL
-        # self.sql_man.insert_realtime(
-        #     self.realtime_timewindow,
-        #     self.repetition_interval,
-        #     self.cp["interp"]["interp_res"],
-        #     self.cp["limits"]["x_min"],
-        #     self.cp["limits"]["x_max"],
-        #     self.cp["limits"]["y_min"],
-        #     self.cp["limits"]["y_max"],
-        #     self.config_db["http"]["http_server_address"],
-        #     self.config_db["http"]["http_server_port"],
-        # )
+        self.sql_man.insert_realtime(
+            self.realtime_timewindow,
+            self.repetition_interval,
+            self.cp["interp"]["interp_res"],
+            self.cp["limits"]["x_min"],
+            self.cp["limits"]["x_max"],
+            self.cp["limits"]["y_min"],
+            self.cp["limits"]["y_max"],
+            self.config_db["http"]["http_server_address"],
+            self.config_db["http"]["http_server_port"],
+        )
 
         # write to the local storage
         writer.push_results(
