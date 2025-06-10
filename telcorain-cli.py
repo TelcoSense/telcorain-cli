@@ -106,7 +106,7 @@ class TelcorainCLI:
             # Start the logger
             self._print_init_log_info()
             # Load the link info and select all available links
-            links = self.sql_man.load_metadata()
+            links = self.sql_man.load_metadata(min_length=self.cp["cml"]["min_length"])
             selected_links = select_all_links(links=links)
             # Get the start time of the application
             start_time = datetime.now(tz=timezone.utc)
@@ -209,7 +209,6 @@ class TelcorainCLI:
             f"Interpolation: res {self.cp['interp']['interp_res']}, power {self.cp['interp']['idw_power']}",
             f"Realtime window: {self.cp['realtime']['realtime_timewindow']}",
             f"Retention window: {self.cp['realtime']['retention_window']}",
-            f"Optimization: {self.cp['realtime']['realtime_optimization']}",
         ]
 
         logger.info("Global config settings: " + "; ".join(config_info))
