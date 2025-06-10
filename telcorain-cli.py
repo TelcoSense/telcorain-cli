@@ -62,7 +62,7 @@ class TelcorainCLI:
         self.realtime_timewindow = self.delta_map.get(
             self.cp["realtime"]["realtime_timewindow"]
         ).total_seconds()
-        self.sql_man = SqlManager(min_length=self.cp["cml"]["min_length"])
+        self.sql_man = SqlManager()
         self.influx_man = influx_man
         self.logger = logger
 
@@ -79,7 +79,9 @@ class TelcorainCLI:
                 # Start the logger
                 self._print_init_log_info()
                 # Load the link info and select all available links
-                links = self.sql_man.load_metadata()
+                links = self.sql_man.load_metadata(
+                    min_length=self.cp["cml"]["min_length"]
+                )
                 selected_links = select_all_links(links=links)
                 # Get the start time of the application
                 start_time = datetime.now(tz=timezone.utc)
