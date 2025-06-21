@@ -20,6 +20,7 @@ pass=
 timeout=1000
 db_metadata=cml_metadata
 db_output=telcorain_output
+exclude_cmls_path=invalid_cmls.csv
 
 [influx2]
 url=

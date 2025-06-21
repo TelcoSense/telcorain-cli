@@ -80,7 +80,7 @@ class TelcorainCLI:
                 self._print_init_log_info()
                 # Load the link info and select all available links
                 links = self.sql_man.load_metadata(
-                    min_length=self.cp["cml"]["min_length"]
+                    min_length=self.cp["cml"]["min_length"], exclude_ids=True
                 )
                 selected_links = select_all_links(links=links)
                 # Get the start time of the application
