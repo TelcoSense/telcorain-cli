@@ -208,7 +208,7 @@ class TelcorainCLI:
         calc_info = [
             f"Step: {self.cp['time']['step']}",
             f"IsMLPEnabled: {self.cp['wet_dry']['is_mlp_enabled']}",
-            f"WAA Schleiss: {self.cp['waa']['waa_schleiss_val']}, {self.cp['waa']['waa_schleiss_tau']}",
+            f"WAA method: {self.cp['waa']['waa_method']}",
             f"Interpolation: res {self.cp['interp']['interp_res']}, power {self.cp['interp']['idw_power']}",
             f"Realtime window: {self.cp['realtime']['realtime_timewindow']}",
             f"Retention window: {self.cp['realtime']['retention_window']}",
