@@ -36,10 +36,10 @@ is_temp_compensated=False
 correlation_threshold=0.7
 
 [interp]
-interp_res=0.01
-idw_power=1
-idw_near=35
-idw_dist=1.5
+interp_res=0.025
+idw_power=2
+idw_near=15
+idw_dist=0.75
 
 [raingrids]
 min_rain_value=0.1
