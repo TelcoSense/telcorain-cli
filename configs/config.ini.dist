@@ -11,6 +11,8 @@ outputs=./outputs
 outputs_web=./outputs_web
 outputs_raw=./outputs_raw
 ext_filter_cache=./image_cache
+clean_web=False
+clean_raw=True
 
 [mariadb]
 address=127.0.0.1

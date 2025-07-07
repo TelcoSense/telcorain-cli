@@ -138,7 +138,11 @@ class TelcorainCLI:
         current_time, next_time, since_time = self._get_times()
 
         # Cleanup old data
-        removed_files, kept_files = self._cleanup_old_files(current_time)
+        removed_files, kept_files = self._cleanup_old_files(
+            current_time,
+            clean_raw=self.config["directories"]["clean_raw"],
+            clean_web=self.config["directories"]["clean_web"],
+        )
         deleted_rows = self.sql_man.delete_old_data(
             current_time,
             retention_window=self.delta_map.get(
@@ -200,7 +204,7 @@ class TelcorainCLI:
             f"Logger level: {self.config['logging']['init_level']}",
             f"MariaDB: {self.config_db['mariadb']['address']}:{self.config_db['mariadb']['port']}",
             f"InfluxDB: {self.config_db['influx2']['url']}",
-            f"Output folders - logs: {self.config['directories']['logs']}",
+            f"Output folders -- log: {self.config['directories']['logs']}",
             f"web: {self.config['directories']['outputs_web']}",
             f"raw: {self.config['directories']['outputs_raw']}",
         ]
@@ -239,47 +243,58 @@ class TelcorainCLI:
             executor.submit(purge_web_outputs, config=self.config)
         self.logger.info("[DEVMODE] DATA ERASE DONE.")
 
-    def _cleanup_old_files(self, current_time: datetime) -> tuple[int, int]:
-        """Clean up old files from output directories."""
+    def _cleanup_old_files(
+        self, current_time: datetime, clean_raw: bool = True, clean_web: bool = True
+    ) -> tuple[int, int]:
+        """
+        Delete old files from raw and/or web output directories.
+        Files are deleted if their timestamp (parsed from filename) is older than the retention threshold.
+
+        Parameters:
+            current_time (datetime): The reference time (usually now).
+            clean_raw (bool): Whether to clean the raw output folder.
+            clean_web (bool): Whether to clean the web output folder.
+
+        Returns:
+            Tuple[int, int]: Number of deleted files, number of kept files.
+        """
         retention_window = self.cp["realtime"]["retention_window"]
         threshold = current_time - self.delta_map.get(retention_window)
 
-        raw_dir = Path(self.config["directories"]["outputs_raw"])
-        web_dir = Path(self.config["directories"]["outputs_web"])
+        deleted_count = 0
+        kept_count = 0
 
-        files_to_delete = []
-        files_to_keep = []
+        def delete_in_folder(folder: Path) -> tuple[int, int]:
+            deleted, kept = 0, 0
+            for file_path in folder.glob("*"):
+                if not file_path.is_file():
+                    continue
+                try:
+                    file_time = datetime.strptime(
+                        file_path.stem, "%Y-%m-%d_%H%M"
+                    ).replace(tzinfo=timezone.utc)
+                    if file_time < threshold:
+                        file_path.unlink()
+                        deleted += 1
+                    else:
+                        kept += 1
+                except ValueError:
+                    logger.warning(f"Skipping non-timestamped file: {file_path.name}")
+            return deleted, kept
 
-        for raw_file in raw_dir.glob("*.npy"):
-            try:
-                file_time = datetime.strptime(raw_file.stem, "%Y-%m-%d_%H%M").replace(
-                    tzinfo=timezone.utc
-                )
-                web_file = web_dir / f"{raw_file.stem}.png"
+        if clean_raw:
+            raw_dir = Path(self.config["directories"]["outputs_raw"])
+            d, k = delete_in_folder(raw_dir)
+            deleted_count += d
+            kept_count += k
 
-                if file_time < threshold:
-                    files_to_delete.append((raw_file, web_file))
-                else:
-                    files_to_keep.append(raw_file)
-            except ValueError as e:
-                logger.error(f"Skipping file {raw_file}: {e}")
+        if clean_web:
+            web_dir = Path(self.config["directories"]["outputs_web"])
+            d, k = delete_in_folder(web_dir)
+            deleted_count += d
+            kept_count += k
 
-        # Delete files in parallel
-        with ThreadPoolExecutor() as executor:
-            executor.map(self._delete_file_pair, files_to_delete)
-
-        return len(files_to_delete), len(files_to_keep)
-
-    def _delete_file_pair(self, file_pair: tuple[Path, Path]):
-        """Delete a pair of raw and web files."""
-        raw_file, web_file = file_pair
-        try:
-            if raw_file.exists():
-                raw_file.unlink()
-            if web_file.exists():
-                web_file.unlink()
-        except Exception as e:
-            logger.error(f"Error deleting files: {e}")
+        return deleted_count, kept_count
 
 
 if __name__ == "__main__":
@@ -289,7 +304,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--run", action="store_true", default=False, help="Run the CLI calculation."
+        "--run", action="store_true", default=True, help="Run the CLI calculation."
     )
 
     parser.add_argument(
