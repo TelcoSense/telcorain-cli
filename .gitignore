@@ -1,4 +1,5 @@
 *.pyc
+calc_dataset_debug.csv
 /image_cache
 /outputs_raw
 /outputs_web
