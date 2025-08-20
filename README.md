@@ -1,4 +1,5 @@
 # telcorain-cli
+
 TelcorRain CLI for raingrids calculation. It computes raingrids from all available CMLs and stores them locally, metadata and info in MariaDB, and rainrates in InfluxDB.
 It runs and stores data from "current_time – realtime_timewindow", computes it with step "step" each "repetition_interval".
 
