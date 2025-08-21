@@ -11,4 +11,4 @@ calc_dataset_debug.csv
 /configs/config_calc.ini
 
 # ignoring external repo telcorain
-telcorain/*
+/telcorain/*
